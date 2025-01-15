@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subir Factura</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            background: #fff;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            color: #4CAF50;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        input[type="file"] {
+            margin-bottom: 20px;
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #response {
+            margin-top: 20px;
+            text-align: left;
+            background-color: #f9f9f9;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 15px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Subir Factura</h1>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <label for="file">Selecciona un archivo:</label>
+            <input type="file" name="file" id="file" required>
+            <button type="submit">Subir y Procesar</button>
+        </form>
+        <div id="response"></div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function (event) {
+            event.preventDefault(); // Evitar que se recargue la página
+
+            const fileInput = document.getElementById('file');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/process-invoice', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                const responseDiv = document.getElementById('response');
+                if (response.ok) {
+                    // Extraer el JSON puro de la respuesta
+                    const jsonStart = result.data.indexOf("{");
+                    const jsonEnd = result.data.lastIndexOf("}") + 1;
+                    const pureJson = result.data.substring(jsonStart, jsonEnd);
+
+                    // Mostrar el JSON limpio y formateado
+                    responseDiv.textContent = JSON.stringify(JSON.parse(pureJson), null, 2);
+                } else {
+                    responseDiv.textContent = `Error: ${result.error || 'No se pudo procesar la solicitud.'}`;
+                }
+            } catch (error) {
+                document.getElementById('response').textContent = `Error: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,8 @@
+Flask
+openai
+pdfplumber
+Pillow
+pytesseract
+uuid
+
+# pip install -r requirements.txt
