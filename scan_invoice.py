@@ -10,6 +10,9 @@ import uuid
 openai.api_key = "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"
 openai.organization = "org-DytU29Sd5oMHYt7UkTPvoRxI"
 
+# Configura el archivo de tesseract
+pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR/tesseract.exe"
+
 app = Flask(__name__)
 
 # Definición de las propiedades de la factura
