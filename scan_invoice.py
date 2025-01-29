@@ -21,7 +21,6 @@ openai.organization = "org-DytU29Sd5oMHYt7UkTPvoRxI"
 #     raise FileNotFoundError(f"No se encontró tesseract.exe en: {tesseract_path}")
 
 # pytesseract.pytesseract.tesseract_cmd = tesseract_path
-pytesseract.pytesseract.tesseract_cmd = "tesseract"
 
 app = Flask(__name__)
 
