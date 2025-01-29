@@ -5,12 +5,15 @@ from PIL import Image
 import pytesseract
 import os
 import uuid
+import cv2
+import numpy as np
+from pdf2image import convert_from_path
 
 # Configura tu clave de API de OpenAI
-openai.api_key = "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"
+openai.api_key = "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"
 openai.organization = "org-DytU29Sd5oMHYt7UkTPvoRxI"
 
-# Configura el archivo de tesseract
+# Configura el archivo de Tesseract
 pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR/tesseract.exe"
 
 app = Flask(__name__)
@@ -39,22 +42,57 @@ properties = {
     }
 }
 
-# Extraer texto de un archivo PDF
-def extract_text_from_pdf(pdf_path):
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            text = "".join(page.extract_text() for page in pdf.pages if page.extract_text())
-        return text.strip()
-    except Exception as e:
-        raise RuntimeError(f"Error al procesar el PDF: {e}")
+# Preprocesamiento de imágenes
+def preprocess_image(image_path):
+    # Cargar la imagen en escala de grises
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    
+    # Aplicar un filtro de suavizado para reducir el ruido
+    image = cv2.GaussianBlur(image, (5, 5), 0)
+    
+    # Aplicar umbralización adaptativa para mejorar el contraste
+    image = cv2.adaptiveThreshold(
+        image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+    
+    return image
 
 # Extraer texto de una imagen
 def extract_text_from_image(image_path):
     try:
-        image = Image.open(image_path)
-        return pytesseract.image_to_string(image).strip()
+        # Preprocesar la imagen
+        preprocessed_image = preprocess_image(image_path)
+        
+        # Convertir la imagen preprocesada a un objeto PIL
+        image_pil = Image.fromarray(preprocessed_image)
+        
+        # Extraer texto usando Tesseract
+        text = pytesseract.image_to_string(image_pil, lang='spa')
+        return text.strip()
     except Exception as e:
         raise RuntimeError(f"Error al procesar la imagen: {e}")
+
+# Extraer texto de un archivo PDF
+def extract_text_from_pdf(pdf_path):
+    try:
+        # Convertir el PDF en una lista de imágenes
+        images = convert_from_path(pdf_path)
+        
+        text = ""
+        for image in images:
+            # Guardar la imagen temporalmente
+            temp_image_path = f"temp_{uuid.uuid4()}.jpg"
+            image.save(temp_image_path, "JPEG")
+            
+            # Extraer texto de la imagen
+            text += extract_text_from_image(temp_image_path) + "\n"
+            
+            # Eliminar la imagen temporal
+            os.remove(temp_image_path)
+        
+        return text.strip()
+    except Exception as e:
+        raise RuntimeError(f"Error al procesar el PDF: {e}")
 
 # Determinar si es PDF o imagen
 def extract_text(file_path):
@@ -68,11 +106,28 @@ def extract_text(file_path):
 # Envía el texto a ChatGPT para extraer datos
 def extract_data_from_invoice(text):
     try:
+        prompt = f"""
+        Extrae los datos de la factura basándote en la siguiente estructura y damelo en formato json nada mas, y proporciona los valores correspondientes a cada campo y si no encontras solo pone "No encontrado":
+        
+        - Número de factura (id_factura)
+        - Tipo de factura (tipo_factura): 'A' o 'B'
+        - Total de la factura (total)
+        - Subtotal de la factura (subtotal)
+        - Percepción IVA (iva)
+        - Percepción IIBB (ing_brutos)
+        - CUIT del cliente (cuit_cliente)
+        - CUIT del proveedor (cuit_proveedor)
+        - Items (items): Lista de productos con código, precio unitario y cantidad.
+        
+        Texto de la factura:
+        {text}
+        """
+        
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": "Eres un asistente que extrae datos de facturas."},
-                {"role": "user", "content": f"Extrae los datos de la factura basándote en la siguiente estructura:\n\n{properties}\n\nTexto:\n\n{text}"}
+                {"role": "user", "content": prompt}
             ]
         )
         return response['choices'][0]['message']['content']
@@ -98,28 +153,23 @@ def process_invoice():
         # Generar un nombre único para el archivo
         unique_filename = f"{uuid.uuid4()}_{file.filename.replace(' ', '_')}"
         temp_dir = os.path.join(os.path.abspath(os.getenv('TMPDIR', '/tmp')))
-
-        # Crear el directorio temporal si no existe
         os.makedirs(temp_dir, exist_ok=True)
-
         file_path = os.path.join(temp_dir, unique_filename)
-
-        # Guardar el archivo en la ruta
         file.save(file_path)
 
         # Procesar el archivo
         text = extract_text(file_path)
         if text:
             extracted_data = extract_data_from_invoice(text)
-            # Eliminar el archivo temporal después del procesamiento
             os.remove(file_path)
             return jsonify({"data": extracted_data}), 200
         else:
-            # Eliminar el archivo temporal si el procesamiento falla
             os.remove(file_path)
             return jsonify({"error": "No se pudo extraer texto del archivo"}), 400
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return jsonify({"error": f"Error en el servidor: {str(e)}"}), 500
 
 # Inicio de la aplicación
 if __name__ == '__main__':
