@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: scan_invoice
+    runtime: ubuntu
+    pythonVersion: "3.11.11"
+    buildCommand: |
+      sudo apt-get update
+      sudo apt-get install -y tesseract-ocr
+      poetry install --no-root
+    startCommand: "poetry run python scan_invoice.py"
