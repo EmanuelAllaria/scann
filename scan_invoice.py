@@ -14,13 +14,14 @@ openai.api_key = "sk-proj-RekCMePfL9e1x56uYka2rTM5i4Y9lHya7jx7IJb2ml1nTI4EH7iLeP
 openai.organization = "org-DytU29Sd5oMHYt7UkTPvoRxI"
 
 # Configura el archivo de Tesseract
-# project_root = os.path.dirname(os.path.abspath(__file__))
-# tesseract_path = os.path.join(project_root, "Tesseract-OCR", "tesseract.exe")
+project_root = os.path.dirname(os.path.abspath(__file__))
+tesseract_path = os.path.join(project_root, "Tesseract-OCR", "tesseract.exe")
 
-# if not os.path.exists(tesseract_path):
-#     raise FileNotFoundError(f"No se encontró tesseract.exe en: {tesseract_path}")
+if not os.path.exists(tesseract_path):
+    raise FileNotFoundError(f"No se encontró tesseract.exe en: {tesseract_path}")
 
-# pytesseract.pytesseract.tesseract_cmd = tesseract_path
+pytesseract.pytesseract.tesseract_cmd = tesseract_path
+print(f"Usando Tesseract en: {tesseract_path}")
 
 app = Flask(__name__)
 
