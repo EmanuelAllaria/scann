@@ -1,10 +1,14 @@
 services:
   - type: web
     name: scan_invoice
-    runtime: ubuntu
-    pythonVersion: "3.11.11"
-    buildCommand: |
-      sudo apt-get update
-      sudo apt-get install -y tesseract-ocr
-      poetry install --no-root
-    startCommand: "poetry run python scan_invoice.py"
+    env: docker  # ⚠️ Cambia a Docker en vez de Python
+    region: oregon
+    plan: free
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_ORG
+        sync: false
