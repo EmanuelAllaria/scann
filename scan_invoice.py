@@ -7,7 +7,6 @@ import os
 import uuid
 import cv2
 import numpy as np
-from pdf2image import convert_from_path
 
 # Configura tu clave de API de OpenAI
 openai.api_key = "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"
@@ -65,15 +64,34 @@ def preprocess_image(image_path):
     return image
 
 # Extraer texto de una imagen
+def preprocess_image(image_path):
+    # Cargar la imagen en escala de grises
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    
+    # Aplicar umbral adaptativo para resaltar texto
+    _, thresh = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Invertir colores: texto negro, fondo blanco
+    inverted = cv2.bitwise_not(thresh)
+    
+    # Convertir fondo blanco a transparente
+    bgr_image = cv2.cvtColor(inverted, cv2.COLOR_GRAY2BGR)
+    rgba_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2BGRA)
+    rgba_image[np.all(bgr_image == [255, 255, 255], axis=-1)] = [255, 255, 255, 0]  # Hacer fondo transparente
+    
+    return rgba_image
+
 def extract_text_from_image(image_path):
     try:
+        print(f"Procesando imagen: {image_path}")
+        
         # Preprocesar la imagen
         preprocessed_image = preprocess_image(image_path)
         
-        # Convertir la imagen preprocesada a un objeto PIL
+        # Convertir a imagen PIL
         image_pil = Image.fromarray(preprocessed_image)
         
-        # Extraer texto usando Tesseract
+        # Extraer texto con Tesseract
         text = pytesseract.image_to_string(image_pil, lang='spa')
         return text.strip()
     except Exception as e:
@@ -82,20 +100,14 @@ def extract_text_from_image(image_path):
 # Extraer texto de un archivo PDF
 def extract_text_from_pdf(pdf_path):
     try:
-        # Convertir el PDF en una lista de imágenes
-        images = convert_from_path(pdf_path)
-        
+        print(f"pdf_path: {pdf_path}")
         text = ""
-        for image in images:
-            # Guardar la imagen temporalmente
-            temp_image_path = f"temp_{uuid.uuid4()}.jpg"
-            image.save(temp_image_path, "JPEG")
-            
-            # Extraer texto de la imagen
-            text += extract_text_from_image(temp_image_path) + "\n"
-            
-            # Eliminar la imagen temporal
-            os.remove(temp_image_path)
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() + "\n" if page.extract_text() else ""
+        
+        if not text.strip():
+            raise ValueError("No se pudo extraer texto del PDF")
         
         return text.strip()
     except Exception as e:
