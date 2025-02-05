@@ -1,196 +1,80 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, render_template, jsonify
 import openai
-import pdfplumber
-from PIL import Image
-import pytesseract
+import base64
 import os
-import uuid
-import cv2
-import numpy as np
-
-# Configura tu clave de API de OpenAI
-openai.api_key = "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"
-openai.organization = "org-DytU29Sd5oMHYt7UkTPvoRxI"
-
-# Configura el archivo de Tesseract
-project_root = os.path.dirname(os.path.abspath(__file__))
-tesseract_path = os.path.join(project_root, "Tesseract-OCR", "tesseract.exe")
-
-if not os.path.exists(tesseract_path):
-    raise FileNotFoundError(f"No se encontró tesseract.exe en: {tesseract_path}")
-
-pytesseract.pytesseract.tesseract_cmd = tesseract_path
-print(f"Usando Tesseract en: {tesseract_path}")
+from pdf2image import convert_from_path
+import tempfile
 
 app = Flask(__name__)
+openai.api_key = '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'
+POPPLER_PATH = r"poppler\Library\bin"
 
-# Definición de las propiedades de la factura
-properties = {
-    "id_factura": {"type": "string", "description": "Número de factura"},
-    "tipo_factura": {"type": "string", "description": "Tipo de factura 'A' o 'B'"},
-    "total": {"type": "string", "description": "Total de la factura"},
-    "subtotal": {"type": "string", "description": "Total del subtotal de la factura"},
-    "iva": {"type": "string", "description": "Total de la 'Percepción IVA' de la factura"},
-    "ing_brutos": {"type": "string", "description": "Total de los 'Percepción IIBB' de la factura"},
-    "cuit_cliente": {"type": "string", "description": "CUIT del cliente"},
-    "cuit_proveedor": {"type": "string", "description": "CUIT del proveedor"},
-    "items": {
-        "type": "array",
-        "description": "Productos de la factura",
-        "items": {
-            "type": "object",
-            "properties": {
-                "codigo": {"type": "string", "description": "Código del producto"},
-                "price_unity": {"type": "string", "description": "Precio unitario del producto en decimal, sin redondear"},
-                "cantidad": {"type": "number", "description": "Cantidad de productos"}
-            }
-        }
-    }
-}
+def convertir_pdf_a_imagenes(pdf_path):
 
-# Preprocesamiento de imágenes
-def preprocess_image(image_path):
-    # Cargar la imagen en escala de grises
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    """Convierte un PDF en una lista de imágenes y devuelve las rutas de las imágenes generadas."""
+    imagenes = convert_from_path(pdf_path, poppler_path=POPPLER_PATH)
+    rutas_imagenes = []
     
-    # Aplicar un filtro de suavizado para reducir el ruido
-    image = cv2.GaussianBlur(image, (5, 5), 0)
+    for i, img in enumerate(imagenes):
+        ruta_img = f"pagina_{i+1}.jpeg"
+        img.save(ruta_img, "JPEG")
+        rutas_imagenes.append(ruta_img)
     
-    # Aplicar umbralización adaptativa para mejorar el contraste
-    image = cv2.adaptiveThreshold(
-        image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-    )
+    return rutas_imagenes
+
+def escanear_factura(imagenes_paths):
+    """Envía las imágenes a la API de OpenAI para extraer información de la factura."""
+    mensajes = [{
+        "role": "user",
+        "content": [{"type": "text", "text": "Extrae la información de la factura y devuélvela en formato JSON con los siguientes campos: id_factura, tipo_factura, total, subtotal, iva, ing_brutos, cuit_cliente, cuit_proveedor, items (codigo, description, price_unity, cantidad). No agregues ningún comentario adicional. Solo devuelve el JSON, no agregues texto adicional."}]
+    }]
     
-    return image
+    for imagen_path in imagenes_paths:
+        with open(imagen_path, "rb") as image_file:
+            encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+        mensajes[0]["content"].append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}})
 
-# Extraer texto de una imagen
-def preprocess_image(image_path):
-    # Cargar la imagen en escala de grises
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    payload = {"model": "gpt-4o-mini", "messages": mensajes, "max_tokens": 1000}
+    response = openai.ChatCompletion.create(**payload)
+    json_response = response['choices'][0]['message']['content']
     
-    # Aplicar umbral adaptativo para resaltar texto
-    _, thresh = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    for imagen_path in imagenes_paths:
+        os.remove(imagen_path)
     
-    # Invertir colores: texto negro, fondo blanco
-    inverted = cv2.bitwise_not(thresh)
-    
-    # Convertir fondo blanco a transparente
-    bgr_image = cv2.cvtColor(inverted, cv2.COLOR_GRAY2BGR)
-    rgba_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2BGRA)
-    rgba_image[np.all(bgr_image == [255, 255, 255], axis=-1)] = [255, 255, 255, 0]  # Hacer fondo transparente
-    
-    return rgba_image
+    return json_response
 
-def extract_text_from_image(image_path):
-    try:
-        print(f"Procesando imagen: {image_path}")
-        
-        # Preprocesar la imagen
-        preprocessed_image = preprocess_image(image_path)
-        
-        # Convertir a imagen PIL
-        image_pil = Image.fromarray(preprocessed_image)
-        
-        # Extraer texto con Tesseract
-        text = pytesseract.image_to_string(image_pil, lang='spa')
-        return text.strip()
-    except Exception as e:
-        raise RuntimeError(f"Error al procesar la imagen: {e}")
-
-# Extraer texto de un archivo PDF
-def extract_text_from_pdf(pdf_path):
-    try:
-        print(f"pdf_path: {pdf_path}")
-        text = ""
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                text += page.extract_text() + "\n" if page.extract_text() else ""
-        
-        if not text.strip():
-            raise ValueError("No se pudo extraer texto del PDF")
-        
-        return text.strip()
-    except Exception as e:
-        raise RuntimeError(f"Error al procesar el PDF: {e}")
-
-# Determinar si es PDF o imagen
-def extract_text(file_path):
-    if file_path.lower().endswith(".pdf"):
-        return extract_text_from_pdf(file_path)
-    elif file_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-        return extract_text_from_image(file_path)
-    else:
-        raise ValueError("Formato de archivo no compatible. Usa PDF o una imagen.")
-
-# Envía el texto a ChatGPT para extraer datos
-def extract_data_from_invoice(text):
-    try:
-        prompt = f"""
-        Extrae los datos de la factura basándote en la siguiente estructura y damelo en formato json nada mas, y proporciona los valores correspondientes a cada campo y si no encontras solo pone "No encontrado":
-        
-        - Número de factura (id_factura)
-        - Tipo de factura (tipo_factura): 'A' o 'B'
-        - Total de la factura (total)
-        - Subtotal de la factura (subtotal)
-        - Percepción IVA (iva)
-        - Percepción IIBB (ing_brutos)
-        - CUIT del cliente (cuit_cliente)
-        - CUIT del proveedor (cuit_proveedor)
-        - Items (items): Lista de productos con código, precio unitario y cantidad.
-        
-        Texto de la factura:
-        {text}
-        """
-        
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "Eres un asistente que extrae datos de facturas."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response['choices'][0]['message']['content']
-    except Exception as e:
-        raise RuntimeError(f"Error al procesar la solicitud de OpenAI: {e}")
-
-# Ruta principal para mostrar el formulario
 @app.route('/')
 def upload_form():
     return render_template('upload_form.html')
 
-# Ruta para subir archivos y procesarlos
 @app.route('/process-invoice', methods=['POST'])
 def process_invoice():
     if 'file' not in request.files:
-        return jsonify({"error": "Archivo no proporcionado"}), 400
-
+        return jsonify({"error": "No se proporcionó ningún archivo"}), 400
+    
     file = request.files['file']
     if file.filename == '':
-        return jsonify({"error": "Nombre del archivo vacío"}), 400
+        return jsonify({"error": "Nombre de archivo vacío"}), 400
+
+    # Guardar el archivo en un directorio temporal
+    temp_dir = tempfile.gettempdir()
+    file_path = os.path.join(temp_dir, file.filename)
+    file.save(file_path)
 
     try:
-        # Generar un nombre único para el archivo
-        unique_filename = f"{uuid.uuid4()}_{file.filename.replace(' ', '_')}"
-        temp_dir = os.path.join(os.path.abspath(os.getenv('TMPDIR', '/tmp')))
-        os.makedirs(temp_dir, exist_ok=True)
-        file_path = os.path.join(temp_dir, unique_filename)
-        file.save(file_path)
-
-        # Procesar el archivo
-        text = extract_text(file_path)
-        if text:
-            extracted_data = extract_data_from_invoice(text)
-            os.remove(file_path)
-            return jsonify({"data": extracted_data}), 200
+        if file_path.lower().endswith('.pdf'):
+            imagenes = convertir_pdf_a_imagenes(file_path)
         else:
-            os.remove(file_path)
-            return jsonify({"error": "No se pudo extraer texto del archivo"}), 400
-    except Exception as e:
+            imagenes = [file_path]
+
+        json_factura = escanear_factura(imagenes)
+        return jsonify(json_factura)
+    
+    finally:
+        # Eliminar el archivo después de su uso
         if os.path.exists(file_path):
             os.remove(file_path)
-        return jsonify({"error": f"Error en el servidor: {str(e)}"}), 500
 
-# Inicio de la aplicación
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)

@@ -117,20 +117,27 @@
                     body: formData
                 });
 
-                const result = await response.json();
-
                 const responseDiv = document.getElementById('response');
-                if (response.ok) {
-                    // Extraer el JSON puro de la respuesta
-                    const jsonStart = result.data.indexOf("{");
-                    const jsonEnd = result.data.lastIndexOf("}") + 1;
-                    const pureJson = result.data.substring(jsonStart, jsonEnd);
 
-                    // Mostrar el JSON limpio y formateado
-                    responseDiv.textContent = JSON.stringify(JSON.parse(pureJson), null, 2);
-                } else {
-                    responseDiv.textContent = `Error: ${result.error || 'No se pudo procesar la solicitud.'}`;
+                if (!response.ok) {
+                    const errorResult = await response.json();
+                    responseDiv.textContent = `Error: ${errorResult.error || 'No se pudo procesar la solicitud.'}`;
+                    return;
                 }
+
+                let result = await response.json();
+
+                // Verificar si result es un string con formato de JSON dentro
+                if (typeof result === 'string') {
+                    // Limpiar caracteres innecesarios como ```json y ```
+                    result = result.replace(/^```json\n/, '').replace(/\n```$/, '');
+
+                    // Intentar parsear la cadena JSON limpia
+                    result = JSON.parse(result);
+                }
+
+                // Mostrar el JSON limpio y formateado
+                responseDiv.textContent = JSON.stringify(result, null, 2);
             } catch (error) {
                 document.getElementById('response').textContent = `Error: ${error.message}`;
             }
