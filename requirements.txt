@@ -5,8 +5,11 @@ Pillow
 pybase64
 poppler-utils ; sys_platform == 'linux'
 pypdf
+opencv-python
 
 # si es linux 
 # sudo apt-get install poppler-utils
 
 # pip install -r requirements.txt
+# ngrok http 5000
+# py scan_invoice.py
